@@ -28,31 +28,57 @@ func (mr *MapReduce) KillWorkers() *list.List {
 	return l
 }
 
+func (mr *MapReduce) DoJobHelper(jobNumber int, jobType JobType, jobChannel chan bool) {
+	// Will be called nMap times and nReduce times
+	workerAddress := <-mr.registerChannel // Name of worker. BLOCKS UNTIL WORKER IS READY
+
+	var numOtherPhase int
+	if jobType == Map {
+		numOtherPhase = mr.nReduce
+	} else {
+		numOtherPhase = mr.nMap
+	}
+
+	args := &DoJobArgs{mr.file, jobType, jobNumber, numOtherPhase}
+	var reply DoJobReply
+
+	call(workerAddress, "Worker.DoJob", args, &reply) //Don't Need to Check Code, Worker Won't Fail Call
+
+	jobChannel <- true                  //AFTER ITS DONE
+	mr.registerChannel <- workerAddress // No Failure. Can't Put, unless it's flushed. Ready to Go!
+	//STUCK HERE, mr.registerChannel is FULL and no one is here to read it :(
+}
+
+func synchronizationBarrier(channelSize int, jobchannel chan bool) {
+	for i := 0; i < channelSize; i++ {
+		<-jobchannel //Need to Get Rid of Contents channelSize times
+	}
+}
+
 func (mr *MapReduce) RunMaster() *list.List {
-	// Your code here
+	// Sends to a buffered channel block only when the buffer is full.
+	// Receives block when the buffer is empty.
 
 	// Read from mr.registerChannel to get NEW WORKERS
 
 	// Only needs to tell the workers Job Number and File Name
+
+	nMapChannel := make(chan bool, mr.nMap)
+	nReduceChannel := make(chan bool, mr.nReduce)
+
 	for i := 0; i < mr.nMap; i++ {
-		workerAddress := <-mr.registerChannel // Name of worker
-
-		args := &DoJobArgs{mr.file, "Map", i, mr.nReduce}
-		var reply DoJobReply
-		go call(workerAddress, "Worker.DoJob", args, reply)
-		_ = reply
-
-		fmt.Printf("REACHED")
+		go mr.DoJobHelper(i, Map, nMapChannel) // Concurrent Call
 	}
+
+	synchronizationBarrier(mr.nMap, nMapChannel)
+	// Need to wait until MAP are all done!
 
 	for i := 0; i < mr.nReduce; i++ {
-		workerAddress := <-mr.registerChannel // Name of worker
-		args := &DoJobArgs{mr.file, "Reduce", i, mr.nMap}
-		var reply DoJobReply
-		go call(workerAddress, "Worker.DoJob", args, reply)
-		_ = reply
-
+		go mr.DoJobHelper(i, Reduce, nReduceChannel) // Concurrent Call
 	}
+
+	synchronizationBarrier(mr.nReduce, nReduceChannel)
+	//Can only start merging once Reduce are all done!
 
 	//If Jobs Finish Return
 	return mr.KillWorkers()
