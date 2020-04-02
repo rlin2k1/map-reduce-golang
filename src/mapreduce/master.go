@@ -42,11 +42,15 @@ func (mr *MapReduce) DoJobHelper(jobNumber int, jobType JobType, jobChannel chan
 	args := &DoJobArgs{mr.file, jobType, jobNumber, numOtherPhase}
 	var reply DoJobReply
 
-	call(workerAddress, "Worker.DoJob", args, &reply) //Don't Need to Check Code, Worker Won't Fail Call
+	ok := call(workerAddress, "Worker.DoJob", args, &reply) //Don't Need to Check Code, Worker Won't Fail Call
 
-	jobChannel <- true                  //AFTER ITS DONE
-	mr.registerChannel <- workerAddress // No Failure. Can't Put, unless it's flushed. Ready to Go!
-	//STUCK HERE, mr.registerChannel is FULL and no one is here to read it :(
+	if ok == true {
+		jobChannel <- true                  //AFTER ITS DONE
+		mr.registerChannel <- workerAddress // No Failure. Can't Put, unless it's flushed. Ready to Go!
+		//STUCK HERE, mr.registerChannel is FULL and no one is here to read it :(
+	} else {
+		mr.DoJobHelper(jobNumber, jobType, jobChannel) // TRY AGAIN! Maybe with Same Worker, Maybe with Different Worker
+	}
 }
 
 func synchronizationBarrier(channelSize int, jobchannel chan bool) {
@@ -63,21 +67,21 @@ func (mr *MapReduce) RunMaster() *list.List {
 
 	// Only needs to tell the workers Job Number and File Name
 
-	nMapChannel := make(chan bool, mr.nMap)
-	nReduceChannel := make(chan bool, mr.nReduce)
+	nMapSynchronizationChannel := make(chan bool, mr.nMap)
+	nReduceSynchronizationChannel := make(chan bool, mr.nReduce)
 
 	for i := 0; i < mr.nMap; i++ {
-		go mr.DoJobHelper(i, Map, nMapChannel) // Concurrent Call
+		go mr.DoJobHelper(i, Map, nMapSynchronizationChannel) // Concurrent Call
 	}
 
-	synchronizationBarrier(mr.nMap, nMapChannel)
+	synchronizationBarrier(mr.nMap, nMapSynchronizationChannel)
 	// Need to wait until MAP are all done!
 
 	for i := 0; i < mr.nReduce; i++ {
-		go mr.DoJobHelper(i, Reduce, nReduceChannel) // Concurrent Call
+		go mr.DoJobHelper(i, Reduce, nReduceSynchronizationChannel) // Concurrent Call
 	}
 
-	synchronizationBarrier(mr.nReduce, nReduceChannel)
+	synchronizationBarrier(mr.nReduce, nReduceSynchronizationChannel)
 	//Can only start merging once Reduce are all done!
 
 	//If Jobs Finish Return
