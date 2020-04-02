@@ -1,16 +1,18 @@
 package mapreduce
 
-import "fmt"
-import "os"
-import "log"
-import "strconv"
-import "encoding/json"
-import "sort"
-import "container/list"
-import "net/rpc"
-import "net"
-import "bufio"
-import "hash/fnv"
+import (
+	"bufio"
+	"container/list"
+	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net"
+	"net/rpc"
+	"os"
+	"sort"
+	"strconv"
+)
 
 // import "os/exec"
 
@@ -50,15 +52,16 @@ type KeyValue struct {
 }
 
 type MapReduce struct {
-	nMap            int    // Number of Map jobs
-	nReduce         int    // Number of Reduce jobs
-	file            string // Name of input file
-	MasterAddress   string
-	registerChannel chan string
-	DoneChannel     chan bool
-	alive           bool
-	l               net.Listener
-	stats           *list.List
+	nMap             int    // Number of Map jobs
+	nReduce          int    // Number of Reduce jobs
+	availableWorkers int    // Number of Available Workers
+	file             string // Name of input file
+	MasterAddress    string
+	registerChannel  chan string
+	DoneChannel      chan bool
+	alive            bool
+	l                net.Listener
+	stats            *list.List
 
 	// Map of registered workers that you need to keep up to date
 	Workers map[string]*WorkerInfo
@@ -74,6 +77,7 @@ func InitMapReduce(nmap int, nreduce int,
 	mr.file = file
 	mr.MasterAddress = master
 	mr.alive = true
+	mr.availableWorkers = 0
 	mr.registerChannel = make(chan string)
 	mr.DoneChannel = make(chan bool)
 
@@ -81,8 +85,7 @@ func InitMapReduce(nmap int, nreduce int,
 	return mr
 }
 
-func MakeMapReduce(nmap int, nreduce int,
-	file string, master string) *MapReduce {
+func MakeMapReduce(nmap int, nreduce int, file string, master string) *MapReduce {
 	mr := InitMapReduce(nmap, nreduce, file, master)
 	mr.StartRegistrationServer()
 	go mr.Run()
@@ -92,6 +95,10 @@ func MakeMapReduce(nmap int, nreduce int,
 func (mr *MapReduce) Register(args *RegisterArgs, res *RegisterReply) error {
 	DPrintf("Register: worker %s\n", args.Worker)
 	mr.registerChannel <- args.Worker
+	mr.availableWorkers += 1
+
+	fmt.Printf("Available Workers: %s\n", strconv.Itoa(mr.availableWorkers))
+
 	res.OK = true
 	return nil
 }
