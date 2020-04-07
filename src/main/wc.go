@@ -23,6 +23,7 @@ func Map(value string) *list.List {
 	l := list.New()
 
 	split := strings.FieldsFunc(value, f)
+
 	for i := 0; i < len(split); i++ {
 		l.PushBack(mapreduce.KeyValue{split[i], "1"})
 	}
@@ -35,7 +36,7 @@ func Map(value string) *list.List {
 // output value for that key.
 func Reduce(key string, values *list.List) string {
 	sum := 0
-	// Iterate through list and print its contents.
+
 	for e := values.Front(); e != nil; e = e.Next() {
 		if str, ok := e.Value.(string); ok {
 			v, _ := strconv.Atoi(str)
